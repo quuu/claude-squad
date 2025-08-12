@@ -471,8 +471,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			return m, m.handleError(
 				fmt.Errorf("you can't create more than %d instances", GlobalInstanceLimit))
 		}
+		// Auto-generate a pet name for the new instance
+		petName := session.GeneratePetName()
 		instance, err := session.NewInstance(session.InstanceOptions{
-			Title:   "",
+			Title:   petName,
 			Path:    ".",
 			Program: m.program,
 		})
@@ -482,18 +484,38 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		m.newInstanceFinalizer = m.list.AddInstance(instance)
 		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
-		m.state = stateNew
-		m.menu.SetState(ui.StateNewInstance)
-		m.promptAfterName = true
-
-		return m, nil
+		
+		// Skip the naming state and go directly to starting the instance
+		if err := instance.Start(true); err != nil {
+			m.list.Kill()
+			return m, m.handleError(err)
+		}
+		// Save after adding new instance
+		if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
+			return m, m.handleError(err)
+		}
+		// Instance added successfully, call the finalizer
+		m.newInstanceFinalizer()
+		if m.autoYes {
+			instance.AutoYes = true
+		}
+		
+		// Go directly to prompt state
+		m.state = statePrompt
+		m.menu.SetState(ui.StatePrompt)
+		// Initialize the text input overlay
+		m.textInputOverlay = overlay.NewTextInputOverlay("Enter prompt", "")
+		
+		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case keys.KeyNew:
 		if m.list.NumInstances() >= GlobalInstanceLimit {
 			return m, m.handleError(
 				fmt.Errorf("you can't create more than %d instances", GlobalInstanceLimit))
 		}
+		// Auto-generate a pet name for the new instance
+		petName := session.GeneratePetName()
 		instance, err := session.NewInstance(session.InstanceOptions{
-			Title:   "",
+			Title:   petName,
 			Path:    ".",
 			Program: m.program,
 		})
@@ -503,10 +525,28 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		m.newInstanceFinalizer = m.list.AddInstance(instance)
 		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
-		m.state = stateNew
-		m.menu.SetState(ui.StateNewInstance)
-
-		return m, nil
+		
+		// Skip the naming state and go directly to starting the instance
+		if err := instance.Start(true); err != nil {
+			m.list.Kill()
+			return m, m.handleError(err)
+		}
+		// Save after adding new instance
+		if err := m.storage.SaveInstances(m.list.GetInstances()); err != nil {
+			return m, m.handleError(err)
+		}
+		// Instance added successfully, call the finalizer
+		m.newInstanceFinalizer()
+		if m.autoYes {
+			instance.AutoYes = true
+		}
+		
+		// Go back to default state and show help
+		m.state = stateDefault
+		m.menu.SetState(ui.StateDefault)
+		m.showHelpScreen(helpStart(instance), nil)
+		
+		return m, tea.Batch(tea.WindowSize(), m.instanceChanged())
 	case keys.KeyUp:
 		m.list.Up()
 		return m, m.instanceChanged()
